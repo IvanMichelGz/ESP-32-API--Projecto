@@ -6,7 +6,7 @@ app = FastAPI()
 
 # 1. URI Corregida: Asegúrate de que el usuario sea 'iot' según lo que mencionaste
 # Si el usuario es 'iot', la cadena queda así:
-MONGO_URI = "mongodb+srv://iot:esp32pass@cluster0.ywzq68o.mongodb.net/iot?retryWrites=true&w=majority&appName=Cluster0"
+MONGO_URI = "mongodb+srv://esp32:esp32pass@cluster0.ywzq68o.mongodb.net/iot?retryWrites=true&w=majority&appName=Cluster0"
 
 # 2. Conexión al cliente
 # Añadimos un bloque try-except para detectar errores de conexión rápidamente
