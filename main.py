@@ -26,14 +26,10 @@ def root():
 
 @app.post("/sensor")
 def guardar_sensor(data: dict):
-    # Añadir timestamp
-    data["fecha"] = datetime.now()
-
-    # Insertar en la base de datos
-    result = collection.insert_one(data)
-
-    # Devolvemos el ID generado por MongoDB como confirmación
-    return {
-        "status": "dato guardado",
-        "id_insertado": str(result.inserted_id)
-    }
+    try:
+        data["fecha"] = datetime.now()
+        result = collection.insert_one(data)
+        return {"status": "dato guardado", "id": str(result.inserted_id)}
+    except Exception as e:
+        # Esto te dirá el error real en la respuesta de la terminal
+        return {"status": "error", "detalle": str(e)}
