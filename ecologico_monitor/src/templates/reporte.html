@@ -1,0 +1,181 @@
+{% extends 'base.html' %}
+
+{% block title %}Reporte Estadístico Avanzado - Monitor NoSQL{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="text-secondary" style="font-weight: 600;">📋 Reporte Analítico del Cultivo</h2>
+        <p class="text-muted small mb-0">Rango evaluado: <strong>{{ inicio }}</strong> hasta <strong>{{ fin }}</strong></p>
+    </div>
+    <a href="{{ url_for('web.dashboard') }}" class="btn btn-outline-secondary btn-sm rounded-input">
+        ⬅️ Volver al Dashboard
+    </a>
+</div>
+
+{% if vacio %}
+<div class="alert alert-light text-center p-5 shadow-sm" style="border-radius: 16px; color: #a0aec0;">
+    <span class="display-4 d-block mb-3">🍃</span>
+    <h4>No se encontraron lecturas</h4>
+    <p class="mb-0 small">El ESP32 no reportó almacenamiento en la base de datos MongoDB durante las fechas seleccionadas.</p>
+</div>
+{% else %}
+<div class="row mb-4">
+    <div class="col-md-6 mb-4">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-white text-center text-uppercase small font-weight-bold" style="color: #4d729f !important;">
+                Estadísticas de Temperatura
+            </div>
+            <div class="card-body">
+                <div class="row g-2">
+                    <div class="col-4">
+                        <div class="metric-box bg-pastel-primary">
+                            <small class="d-block text-muted" style="font-size: 11px; font-weight: 600;">MÁXIMA</small>
+                            <strong class="fs-4">{{ "%.1f"|format(metricas.temp_max) }}°C</strong>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="metric-box bg-pastel-neutral">
+                            <small class="d-block text-muted" style="font-size: 11px; font-weight: 600;">MEDIANA</small>
+                            <strong class="fs-4">{{ "%.1f"|format(metricas.temp_mediana) }}°C</strong>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="metric-box" style="background-color: #fcf3f2; color: #c0392b;">
+                            <small class="d-block text-muted" style="font-size: 11px; font-weight: 600;">MÍNIMA</small>
+                            <strong class="fs-4">{{ "%.1f"|format(metricas.temp_min) }}°C</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6 mb-4">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-white text-center text-uppercase small font-weight-bold" style="color: #528250 !important;">
+                Estadísticas de Humedad
+            </div>
+            <div class="card-body">
+                <div class="row g-2">
+                    <div class="col-4">
+                        <div class="metric-box bg-pastel-info">
+                            <small class="d-block text-muted" style="font-size: 11px; font-weight: 600;">MÁXIMA</small>
+                            <strong class="fs-4">{{ "%.1f"|format(metricas.hum_max) }}%</strong>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="metric-box bg-pastel-neutral">
+                            <small class="d-block text-muted" style="font-size: 11px; font-weight: 600;">MEDIANA</small>
+                            <strong class="fs-4">{{ "%.1f"|format(metricas.hum_mediana) }}%</strong>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="metric-box" style="background-color: #fff9e6; color: #b7791f;">
+                            <small class="d-block text-muted" style="font-size: 11px; font-weight: 600;">MÍNIMA</small>
+                            <strong class="fs-4">{{ "%.1f"|format(metricas.hum_min) }}%</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8 mb-4">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white text-secondary">Comportamiento Temporal de las Variables</div>
+            <div class="card-body">
+                <canvas id="reporteChart" width="400" height="190"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4 mb-4">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-white text-secondary">🔥 Momentos Más Calurosos Detectados</div>
+            <div class="card-body p-0">
+                <div class="list-group list-group-flush" style="border-radius: 0 0 16px 16px;">
+                    {% for reg in top_calorosos %}
+                    <div class="list-group-item d-flex justify-content-between align-items-center p-3" style="background-color: transparent;">
+                        <div>
+                            <span class="badge rounded-circle bg-light text-dark border me-2">{{ loop.index }}</span>
+                            <small class="text-muted">{{ reg.fecha }}</small>
+                        </div>
+                        <span class="rank-text" style="font-weight: 700;">{{ "%.1f"|format(reg.temp) }}°C</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div id="reporte-bridge" 
+     data-labels='{{ grafica.labels|tojson }}'
+     data-temperaturas='{{ grafica.temperaturas|tojson }}'
+     data-humedades='{{ grafica.humedades|tojson }}'
+     data-cantidad='{{ grafica.temperaturas|length }}'
+     style="display: none;">
+</div>
+
+<script>
+    // 1. Extraemos los datos de forma segura desde el HTML ya renderizado
+    const rBridge = document.getElementById('reporte-bridge');
+    const rLabels = JSON.parse(rBridge.getAttribute('data-labels'));
+    const rTemperaturas = JSON.parse(rBridge.getAttribute('data-temperaturas'));
+    const rHumedades = JSON.parse(rBridge.getAttribute('data-humedades'));
+    const cantidadRegistros = parseInt(rBridge.getAttribute('data-cantidad')) || 0;
+
+    // 2. Evaluamos el radio de los puntos usando la variable puramente de JS
+    const radioPuntos = cantidadRegistros > 50 ? 0 : 2;
+
+    // 3. Inicializamos Chart.js con sintaxis 100% limpia de JS
+    const ctxR = document.getElementById('reporteChart').getContext('2d');
+    const reporteChart = new Chart(ctxR, {
+        type: 'line',
+        data: {
+            labels: rLabels,
+            datasets: [
+                {
+                    label: 'Temperatura Histórica (°C)',
+                    data: rTemperaturas,
+                    borderColor: '#db9d93',
+                    backgroundColor: 'rgba(219, 157, 147, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: radioPuntos,
+                    fill: true,
+                    yAxisID: 'y-temp'
+                },
+                {
+                    label: 'Humedad Histórica (%)',
+                    data: rHumedades,
+                    borderColor: '#b3c5d7',
+                    backgroundColor: 'rgba(179, 197, 215, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: radioPuntos,
+                    fill: true,
+                    yAxisID: 'y-hum'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                'y-temp': { 
+                    type: 'linear', 
+                    position: 'left', 
+                    title: { display: true, text: 'Temp (°C)' } 
+                },
+                'y-hum': { 
+                    type: 'linear', 
+                    position: 'right', 
+                    title: { display: true, text: 'Hum (%)' }, 
+                    grid: { drawOnChartArea: false } 
+                }
+            }
+        }
+    });
+</script>
+{% endif %}
+{% endblock %}

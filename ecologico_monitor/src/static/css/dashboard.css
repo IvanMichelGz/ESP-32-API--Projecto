@@ -1,0 +1,95 @@
+/* Paleta de Colores: Soft Nordic / Minimal Tech */
+:root {
+    --pastel-bg: #fdfdfd;
+    --pastel-gray: #f4f6f8;
+    --pastel-blue: #b3c5d7;
+    --pastel-blue-dark: #7a9cc6;
+    --pastel-green: #c5d9c3;
+    --pastel-green-dark: #96b393;
+    --pastel-orange: #f2cdc6;
+    --pastel-orange-dark: #db9d93;
+    --text-neutral: #4a5568;
+}
+
+body {
+    color: var(--text-neutral);
+    background-color: var(--pastel-gray) !important;
+}
+
+/* Tarjetas y Contenedores */
+.card {
+    border: none !important;
+    border-radius: 16px !important;
+    background-color: var(--pastel-bg);
+}
+
+.card-header {
+    border-bottom: 1px solid rgba(0,0,0,0.04) !important;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+/* Componentes de Tarjetas de Tiempo Real */
+.badge-pastel {
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-weight: 600;
+}
+
+.metric-box {
+    border-radius: 12px;
+    padding: 15px;
+    text-align: center;
+    transition: transform 0.2s;
+}
+
+.metric-box:hover {
+    transform: translateY(-2px);
+}
+
+/* Cajas de Métricas Históricas */
+.bg-pastel-primary { 
+    background-color: #e3edf7; 
+    color: #4d729f; 
+}
+
+.bg-pastel-info { 
+    background-color: #e8f5e7; 
+    color: #528250; 
+}
+
+.bg-pastel-neutral { 
+    background-color: #f7f7f7; 
+    color: #6b7280; 
+}
+
+.bg-pastel-danger {
+    background-color: #fcf3f2; 
+    color: #c0392b;
+}
+
+.bg-pastel-warning {
+    background-color: #fff9e6; 
+    color: #b7791f;
+}
+
+/* Modificadores Personalizados */
+.rounded-input {
+    border-radius: 10px !important;
+}
+
+.btn-analizar {
+    background-color: var(--pastel-blue-dark); 
+    border-radius: 10px; 
+    font-weight: 600;
+    transition: background-color 0.2s;
+}
+
+.btn-analizar:hover {
+    background-color: #6384ad;
+}
+
+.rank-text {
+    color: var(--pastel-orange-dark); 
+    font-weight: 700;
+}

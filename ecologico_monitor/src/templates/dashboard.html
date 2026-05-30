@@ -1,0 +1,238 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard Inteligente - Monitor NoSQL{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-4 mb-4">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-white text-secondary py-3">Estado del Microclima</div>
+            <div id="contenedor-estado" class="card-body text-center d-flex flex-column justify-content-center">
+                {% if actual and actual.analisis %}
+                    <h3 class="card-title">
+                        <span id="estado-microclima" class="badge {% if actual.analisis.estado == 'Óptimo' %}bg-success text-white{% elif actual.analisis.estado == 'Alerta' %}bg-warning text-dark{% else %}bg-danger text-white{% endif %}">
+                            {{ actual.analisis.estado }}
+                        </span>
+                    </h3>
+                    <div id="alerta-riego">
+                        {% if actual.analisis.necesita_agua %}
+                            <div class="alert alert-danger mt-3 rounded-input" role="alert">
+                                <strong>⚠️ ¡Atención!</strong> Necesita agua de forma inmediata.
+                            </div>
+                        {% else %}
+                            <div class="alert alert-success mt-3 rounded-input" role="alert">
+                                💧 Humedad en rango aceptable.
+                            </div>
+                        {% endif %}
+                    </div>
+                {% else %}
+                    <h3 class="card-title"><span id="estado-microclima" class="badge bg-secondary text-white">Esperando...</span></h3>
+                    <div id="alerta-riego">
+                        <p class="text-muted mt-3">Esperando datos del ESP32...</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-8 mb-4">
+        <div class="row h-100">
+            <div class="col-6">
+                <div class="card text-center shadow-sm h-100 d-flex flex-column justify-content-center p-4" style="background-color: #e3edf7; color: #4d729f;">
+                    <h6 class="text-uppercase text-muted small font-weight-bold">Temperatura Actual</h6>
+                    <h2 id="live-temp" class="display-5 font-weight-bold">{% if actual %}{{ actual.temperatura|round(1) }}°C{% else %}--{% endif %}</h2>
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="card text-center shadow-sm h-100 d-flex flex-column justify-content-center p-4" style="background-color: #e8f5e7; color: #528250;">
+                    <h6 class="text-uppercase text-muted small font-weight-bold">Humedad Actual</h6>
+                    <h2 id="live-hum" class="display-5 font-weight-bold">{% if actual %}{{ actual.humedad|round(1) }}%{% else %}--{% endif %}</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white text-secondary">Diagnóstico del Asistente del Cultivo</div>
+            <div class="card-body">
+                <ul id="lista-recomendaciones" class="mb-0">
+                {% if actual and actual.analisis and actual.analisis.recomendaciones %}
+                    {% for rec in actual.analisis.recomendaciones %}
+                        <li>{{ rec }}</li>
+                    {% endfor %}
+                {% else %}
+                    <li class="text-muted">No hay diagnósticos disponibles en este momento.</li>
+                {% endif %}
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-5">
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white text-secondary">Historial de las Últimas 10 Lecturas</div>
+            <div class="card-body">
+                <canvas id="monitorChart" width="400" height="130"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<hr class="my-5" style="border-top: 2px dashed #cbd5e1;">
+
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm p-4">
+            <h4 class="mb-3 text-secondary" style="font-weight: 500;">📊 Análisis y Reportes Históricos</h4>
+            <p class="text-muted small">Selecciona un rango de fechas para evaluar las métricas estadísticas avanzadas de tu cultivo en una nueva sección.</p>
+            
+            <form action="{{ url_for('web.reporte_historico') }}" method="GET" class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label small font-weight-bold">Fecha de Inicio</label>
+                    <input type="date" name="inicio" class="form-control rounded-input" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small font-weight-bold">Fecha de Fin</label>
+                    <input type="date" name="fin" class="form-control rounded-input" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label submit w-100">
+                        <button type="submit" class="btn btn-analizar w-100 text-white" style="background-color: #4d729f;">
+                            🔍 Analizar Rango
+                        </button>
+                    </label>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div id="data-bridge" 
+     data-fechas='[{% for reg in historial %}"{{ reg.fecha_str }}"{% if not loop.last %},{% endif %}{% endfor %}]'
+     data-temperaturas='[{% for reg in historial %}{{ reg.temperatura }}{% if not loop.last %},{% endif %}{% endfor %}]'
+     data-humedades='[{% for reg in historial %}{{ reg.humedad }}{% if not loop.last %},{% endif %}{% endfor %}]'
+     style="display: none;">
+</div>
+
+<script>
+    // --- 1. CONFIGURACIÓN E INICIALIZACIÓN DE LA GRÁFICA ---
+    const bridge = document.getElementById('data-bridge');
+    let fechas = JSON.parse(bridge.getAttribute('data-fechas')) || [];
+    let temperaturas = JSON.parse(bridge.getAttribute('data-temperaturas')) || [];
+    let humedades = JSON.parse(bridge.getAttribute('data-humedades')) || [];
+
+    const ctx = document.getElementById('monitorChart').getContext('2d');
+    const monitorChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: fechas,
+            datasets: [
+                {
+                    label: 'Temperatura (°C)',
+                    data: temperaturas,
+                    borderColor: '#7a9cc6',
+                    backgroundColor: 'rgba(122, 156, 198, 0.15)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.3,
+                    yAxisID: 'y-temp'
+                },
+                {
+                    label: 'Humedad (%)',
+                    data: humedades,
+                    borderColor: '#96b393',
+                    backgroundColor: 'rgba(150, 179, 147, 0.15)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.3,
+                    yAxisID: 'y-hum'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                'y-temp': { type: 'linear', position: 'left', title: { display: true, text: 'Temperatura (°C)' } },
+                'y-hum': { type: 'linear', position: 'right', title: { display: true, text: 'Humedad (%)' }, grid: { drawOnChartArea: false } }
+            }
+        }
+    });
+
+    // --- 2. SISTEMA DE SONDEO ASÍNCRONO EN TIEMPO REAL (EVERY 5 SECONDS) ---
+    function actualizarDashboard() {
+        // Apuntamos a la estructura real de rutas de tus Blueprints (/api/live-data)
+        fetch('/api/live-data')
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    console.log("Aviso de la base de datos:", data.error);
+                    return;
+                }
+
+                // A. Actualizar Tarjetas de Métricas mediante IDs reales
+                const txtTemp = document.getElementById('live-temp');
+                const txtHum = document.getElementById('live-hum');
+                if (txtTemp && data.actual.temperatura !== undefined) txtTemp.innerText = data.actual.temperatura.toFixed(1) + '°C';
+                if (txtHum && data.actual.humedad !== undefined) txtHum.innerText = data.actual.humedad.toFixed(1) + '%';
+
+                // B. Actualizar Badge del Estado del Microclima
+                const estadoElemento = document.getElementById('estado-microclima');
+                if (estadoElemento && data.actual.analisis) {
+                    estadoElemento.innerText = data.actual.analisis.estado;
+                    if (data.actual.analisis.estado === 'Crítico') {
+                        estadoElemento.className = 'badge bg-danger text-white';
+                    } else if (data.actual.analisis.estado === 'Alerta') {
+                        estadoElemento.className = 'badge bg-warning text-dark';
+                    } else {
+                        estadoElemento.className = 'badge bg-success text-white';
+                    }
+                }
+
+                // C. Actualizar Bloque Dinámico de Alerta de Riego
+                const contenedorAlerta = document.getElementById('alerta-riego');
+                if (contenedorAlerta && data.actual.analisis) {
+                    if (data.actual.analisis.necesitas_agua || data.actual.analisis.necesita_agua) {
+                        contenedorAlerta.innerHTML = `
+                            <div class="alert alert-danger mt-3 rounded-input" role="alert">
+                                <strong>⚠️ ¡Atención!</strong> Necesita agua de forma inmediata.
+                            </div>`;
+                    } else {
+                        contenedorAlerta.innerHTML = `
+                            <div class="alert alert-success mt-3 rounded-input" role="alert">
+                                💧 Humedad en rango aceptable.
+                            </div>`;
+                    }
+                }
+
+                // D. Actualizar Lista Dinámica de Recomendaciones
+                const listaRecomendaciones = document.getElementById('lista-recomendaciones');
+                if (listaRecomendaciones && data.actual.analisis.recomendaciones) {
+                    listaRecomendaciones.innerHTML = ''; 
+                    data.actual.analisis.recomendaciones.forEach(rec => {
+                        const li = document.createElement('li');
+                        li.innerText = rec;
+                        listaRecomendaciones.appendChild(li);
+                    });
+                }
+
+                // E. Actualizar Gráfica Histórica en Vivo (Vinculada a monitorChart)
+                if (monitorChart && data.grafica) {
+                    monitorChart.data.labels = data.grafica.labels;
+                    monitorChart.data.datasets[0].data = data.grafica.temperaturas;
+                    monitorChart.data.datasets[1].data = data.grafica.humedades;
+                    monitorChart.update();
+                }
+            })
+            .catch(error => console.error("Error conectando con el Endpoint asíncrono:", error));
+    }
+
+    // Arrancar ciclo automático de refresco
+    actualizarDashboard();
+    setInterval(actualizarDashboard, 5000);
+</script>
+{% endblock %}
