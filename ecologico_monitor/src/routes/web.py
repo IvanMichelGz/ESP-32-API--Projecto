@@ -3,7 +3,6 @@ from src.database import Database
 from datetime import datetime, timedelta
 import statistics
 
-# Modifica esta línea en tu web.py (Línea 5 aprox.)
 web_bp = Blueprint('web', __name__, template_folder='../templates')
 
 def formatear_fecha(fecha_obj):
@@ -19,8 +18,10 @@ def formatear_fecha(fecha_obj):
 
 @web_bp.route('/')
 def dashboard():
+    """Carga inicial estática del tablero de control con el estado más reciente."""
     try:
         coleccion = Database.get_collection('sensores')
+        # Obtenemos las últimas 10 lecturas reales para poblar la vista base
         registros = list(coleccion.find().sort('fecha', -1).limit(10))
         registros.reverse()
         
@@ -42,10 +43,13 @@ def dashboard():
         if actual:
             actual['temperatura'] = actual.get('temperatura', 0)
             actual['humedad'] = actual.get('humedad', 0)
+            
+            # Lógica analítica síncrona de respaldo
+            analisis = actual.get('analisis', {})
             actual['analisis'] = {
-                'estado': 'Óptimo' if actual['humedad'] >= 40 else 'Crítico',
-                'necesita_agua': actual['humedad'] < 40,
-                'recomendaciones': ['El sistema opera en rangos normales.'] if actual['humedad'] >= 40 else ['Alerta: Humedad baja.', 'Activar riego.']
+                'estado': analisis.get('estado', 'Óptimo' if actual['humedad'] >= 40 else 'Crítico'),
+                'necesita_agua': analisis.get('necesita_agua', actual['humedad'] < 40),
+                'recomendaciones': analisis.get('recomendaciones', ['El sistema opera en rangos normales.'] if actual['humedad'] >= 40 else ['Alerta: Humedad baja.', 'Activar riego.'])
             }
 
         return render_template('dashboard.html', historial=historial, actual=actual)
@@ -56,14 +60,14 @@ def dashboard():
 
 @web_bp.route('/api/live-data')
 def live_data():
-    """API Endpoint para el refresco asíncrono cada 5 segundos usando la colección correcta."""
+    """API Endpoint corregido para el refresco asíncrono cada 5 segundos."""
     try:
-        # Se unifica a la colección 'sensores' para mantener consistencia global
         coleccion = Database.get_collection('sensores')
-        registros = list(coleccion.find().sort('fecha', -1).limit(10))
         
-        # Si no hay datos reales en Atlas, responde con datos simulados dinámicos
-        if not registros:
+        # 1. Traemos los 10 registros más recientes (el index 0 es el último segundo)
+        registros_nuevos = list(coleccion.find().sort('fecha', -1).limit(10))
+        
+        if not registros_nuevos:
             ahora = datetime.now()
             labels_mock = [(ahora - timedelta(seconds=(10-i)*5)).strftime('%H:%M:%S') for i in range(10)]
             temp_dinamica = 24.0 + (ahora.second % 5) * 0.4
@@ -76,7 +80,7 @@ def live_data():
                     'analisis': {
                         'estado': 'Óptimo (Simulado)',
                         'necesita_agua': False,
-                        'recomendaciones': ['Conexión Atlas exitosa.', 'Monitoreando canal de datos virtual de prueba.']
+                        'recomendaciones': ['Esperando transmisión física del ESP32...', 'Monitoreando canal virtual.']
                     }
                 },
                 'grafica': {
@@ -86,24 +90,31 @@ def live_data():
                 }
             })
             
-        actual_reg = registros[0]
-        registros.reverse()
+        # 2. Guardamos el dato más reciente para las tarjetas ANTES de voltear nada
+        actual_reg = registros_nuevos[0]
         
-        temp_val = actual_reg.get('temperatura', 0)
-        hum_val = actual_reg.get('humedad', 0)
+        temp_val = float(actual_reg.get('temperatura', 0))
+        hum_val = float(actual_reg.get('humedad', 0))
         
-        estado = "Óptimo"
-        necesita_agua = False
-        recomendaciones = ["El sistema opera en rangos normales."]
+        # Extraer análisis inteligente
+        analisis_api = actual_reg.get('analisis', {})
+        estado = analisis_api.get('estado', "Óptimo")
+        necesita_agua = analisis_api.get('necesita_agua', False)
+        recomendaciones = analisis_api.get('recomendaciones', ["El sistema opera en rangos normales."])
         
-        if hum_val < 40:
-            estado = "Crítico"
-            necesita_agua = True
-            recomendaciones = ["Alerta: Humedad críticamente baja.", "Activar riego automatizado inmediatamente."]
-        elif temp_val > 30:
-            estado = "Alerta"
-            recomendaciones = ["Temperatura elevada.", "Monitorear ventilación del invernadero."]
-            
+        if not analisis_api:
+            if hum_val < 40:
+                estado = "Crítico"
+                necesita_agua = True
+                recomendaciones = ["Alerta: Humedad críticamente baja.", "Activar riego automatizado inmediatamente."]
+            elif temp_val > 30:
+                estado = "Alerta"
+                recomendaciones = ["Temperatura elevada.", "Monitorear ventilación del invernadero."]
+
+        # 3. Clonamos y volteamos la lista ÚNICAMENTE para la gráfica (eje X de izquierda a derecha)
+        registros_grafica = list(registros_nuevos)
+        registros_grafica.reverse()
+        
         data = {
             'actual': {
                 'temperatura': temp_val,
@@ -115,19 +126,20 @@ def live_data():
                 }
             },
             'grafica': {
-                'labels': [formatear_fecha(r.get('fecha', datetime.now())) for r in registros],
-                'temperaturas': [r.get('temperatura', 0) for r in registros],
-                'humedades': [r.get('humedad', 0) for r in registros]
+                'labels': [formatear_fecha(r.get('fecha', datetime.now())) for r in registros_grafica],
+                'temperaturas': [float(r.get('temperatura', 0)) for r in registros_grafica],
+                'humedades': [float(r.get('humedad', 0)) for r in registros_grafica]
             }
         }
         return jsonify(data)
+        
     except Exception as e:
         print(f"❌ Error en Endpoint /api/live-data: {e}")
-        return jsonify({'error': str(e)})
-
+        return jsonify({'error': str(e)}), 500
 
 @web_bp.route('/reporte')
 def reporte_historico():
+    """Generación de reportes avanzados optimizados con agregaciones por hora."""
     inicio_str = request.args.get('inicio')
     fin_str = request.args.get('fin')
     
@@ -135,49 +147,66 @@ def reporte_historico():
         return redirect(url_for('web.dashboard'))
         
     try:
-        # 1. Convertir strings a objetos datetime con zona horaria/límites correctos
         fecha_inicio = datetime.strptime(inicio_str, '%Y-%m-%d')
-        # Forzamos que el día de fin termine exactamente a las 23:59:59.999
         fecha_fin = datetime.strptime(fin_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59, microsecond=999999)
         
-        nombre_coleccion = 'sensores' 
-        coleccion = Database.get_collection(nombre_coleccion)
+        coleccion = Database.get_collection('sensores')
         
-        total_documentos = coleccion.count_documents({})
-        print(f"📊 [DEBUG] Total de documentos guardados en la colección '{nombre_coleccion}': {total_documentos}")
+        # Pipeline de Agregación: Evita el colapso visual promediando ráfagas masivas por hora
+        pipeline = [
+            {"$match": {"fecha": {"$gte": fecha_inicio, "$lte": fecha_fin}}},
+            {"$group": {
+                "_id": {
+                    "fecha_hora": {"$dateToString": {"format": "%Y-%m-%d %H:00", "date": "$fecha"}}
+                },
+                "temp_promedio": {"$avg": "$temperatura"},
+                "hum_promedio": {"$avg": "$humedad"},
+                "temp_max_hora": {"$max": "$temperatura"},
+                "temp_min_hora": {"$min": "$temperatura"},
+                "hum_max_hora": {"$max": "$humedad"},
+                "hum_min_hora": {"$min": "$humedad"}
+            }},
+            {"$sort": {"_id.fecha_hora": 1}}
+        ]
         
-        # 2. Consulta filtrando estrictamente por el rango seleccionado
-        query = {'fecha': {'$gte': fecha_inicio, '$lte': fecha_fin}}
-        registros = list(coleccion.find(query).sort('fecha', 1))
+        registros_agrupados = list(coleccion.aggregate(pipeline))
         
-        print(f"🔍 [DEBUG] Documentos encontrados en el rango seleccionado: {len(registros)}")
-        
-        # 3. Respaldo inteligente: Si no hay datos hoy, buscamos las últimas 50 lecturas reales totales
-        hubo_respaldo = False
-        if not registros:
-            print("⚠️ El rango seleccionado no contiene datos. Extrayendo histórico general de 'sensores'...")
-            registros = list(coleccion.find().sort('fecha', -1).limit(50))
-            registros.reverse()  # Orden cronológico para Chart.js
-            hubo_respaldo = True
+        # Respaldo de seguridad si el rango consultado carece por completo de lecturas
+        if not registros_agrupados:
+            print("⚠️ El rango seleccionado no contiene datos agregados. Extrayendo histórico general...")
+            registros_raw = list(coleccion.find().sort('fecha', -1).limit(50))
+            registros_raw.reverse()
             
-        if not registros:
-            print("❌ La colección 'sensores' está completamente vacía en Atlas.")
-            grafica_vacia = {'labels': [], 'temperaturas': [], 'humedades': []}
-            return render_template('reporte.html', vacio=True, inicio=inicio_str, fin=fin_str, grafica=grafica_vacia)
+            if not registros_raw:
+                grafica_vacia = {'labels': [], 'temperaturas': [], 'humedades': []}
+                return render_template('reporte.html', vacio=True, inicio=inicio_str, fin=fin_str, grafica=grafica_vacia)
             
-        # Extracción segura de campos convirtiéndolos en flotantes limpios
-        temps = [float(r.get('temperatura', 0)) for r in registros if r.get('temperatura') is not None]
-        hums = [float(r.get('humedad', 0)) for r in registros if r.get('humedad') is not None]
-        
-        # Formatear la fecha de forma segura para las etiquetas de la gráfica
-        labels_grafica = []
-        for r in registros:
-            f = r.get('fecha')
-            if isinstance(f, datetime):
-                # Si es un respaldo de varios días, incluimos el día/mes para evitar confusión visual
-                labels_grafica.append(f.strftime('%d/%m %H:%M') if hubo_respaldo else f.strftime('%H:%M:%S'))
-            else:
-                labels_grafica.append(str(f).split('T')[0][5:] if 'T' in str(f) else str(f)[:10])
+            temps = [float(r.get('temperatura', 0)) for r in registros_raw]
+            hums = [float(r.get('humedad', 0)) for r in registros_raw]
+            labels_grafica = [r.get('fecha').strftime('%d/%m %H:%M') if isinstance(r.get('fecha'), datetime) else str(r.get('fecha'))[:16] for r in registros_raw]
+            
+            metricas = {
+                'temp_max': max(temps), 'temp_min': min(temps), 'temp_mediana': statistics.median(temps),
+                'hum_max': max(hums), 'hum_min': min(hums), 'hum_mediana': statistics.median(hums)
+            }
+        else:
+            # Procesamiento estructurado de datos limpios agrupados por bloque de hora
+            temps = [round(float(r['temp_promedio']), 1) for r in registros_agrupados]
+            hums = [round(float(r['hum_promedio']), 1) for r in registros_agrupados]
+            
+            labels_grafica = []
+            for r in registros_agrupados:
+                dt_parse = datetime.strptime(r['_id']['fecha_hora'], '%Y-%m-%d %H:%00')
+                labels_grafica.append(dt_parse.strftime('%d/%m %H:00'))
+            
+            metricas = {
+                'temp_max': max([r['temp_max_hora'] for r in registros_agrupados]),
+                'temp_min': min([r['temp_min_hora'] for r in registros_agrupados]),
+                'temp_mediana': statistics.median(temps),
+                'hum_max': max([r['hum_max_hora'] for r in registros_agrupados]),
+                'hum_min': min([r['hum_min_hora'] for r in registros_agrupados]),
+                'hum_mediana': statistics.median(hums)
+            }
 
         grafica = {
             'labels': labels_grafica,
@@ -185,27 +214,16 @@ def reporte_historico():
             'humedades': hums
         }
         
-        # Cálculo de métricas estadísticas asistidas por la librería estándar
-        metricas = {
-            'temp_max': max(temps) if temps else 0,
-            'temp_min': min(temps) if temps else 0,
-            'temp_mediana': statistics.median(temps) if temps else 0,
-            'hum_max': max(hums) if hums else 0,
-            'hum_min': min(hums) if hums else 0,
-            'hum_mediana': statistics.median(hums) if hums else 0
-        }
-        
-        # =========================================================================
-        # 🔥 FILTRADO DEL TOP 5 SIN DUPLICADOS EN EL MISMO MINUTO
-        # =========================================================================
-        registros_ordenados = sorted(registros, key=lambda x: x.get('temperatura', 0), reverse=True)
+        # Extracción y filtrado estricto del Top 5 de picos calurosos eliminando duplicados por minuto
+        query_top = {'fecha': {'$gte': fecha_inicio, '$lte': fecha_fin}}
+        todos_registros = list(coleccion.find(query_top))
+        registros_ordenados = sorted(todos_registros, key=lambda x: x.get('temperatura', 0), reverse=True)
         
         top_calorosos = []
         minutos_procesados = set()
         
         for reg in registros_ordenados:
             f_obj = reg.get('fecha')
-            
             if isinstance(f_obj, datetime):
                 f_format = f_obj.strftime('%d/%m/%Y %H:%M')
             else:
@@ -222,7 +240,6 @@ def reporte_historico():
             
             if len(top_calorosos) == 5:
                 break
-        # =========================================================================
             
         return render_template('reporte.html', 
                                vacio=False, 

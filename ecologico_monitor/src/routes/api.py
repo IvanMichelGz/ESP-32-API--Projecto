@@ -16,21 +16,24 @@ def guardar_sensor():
         if not data:
             return jsonify({"status": "error", "detalle": "Cuerpo de petición vacío"}), 400
             
-        # Extraer variables obligatorias
+        # 1. Extraer y validar variables obligatorias enviadas por el ESP32
         temp_val = float(data.get('temperatura'))
         hum_val = float(data.get('humedad'))
         
-        # Sincronizar fecha en el servidor
+        # 2. Sincronizar fecha nativa en el servidor (PIEZA CLAVE)
+        # Esto guarda un objeto ISODate real que MongoDB Atlas sí puede indexar,
+        # permitiendo que aparezca al instante en el Dashboard y en los reportes.
         data["fecha"] = datetime.now()
         
-        # Inyectar lógica de análisis inteligente
+        # 3. Inyectar lógica de análisis inteligente para las tarjetas del cultivo
         analisis_resultado = CultiveAnalyzer.analyze(temp_val, hum_val)
         data["analisis"] = analisis_resultado
 
-        # Guardar en MongoDB Atlas
+        # 4. Persistencia inmediata en MongoDB Atlas
         collection = Database.get_collection('sensores')
         result = collection.insert_one(data)
         
+        # Devolvemos la respuesta de éxito requerida por el firmware
         return jsonify({
             "status": "dato guardado",
             "id": str(result.inserted_id),

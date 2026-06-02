@@ -112,72 +112,104 @@
 </div>
 
 <script>
-    // --- 1. CONFIGURACIÓN E INICIALIZACIÓN DE LA GRÁFICA ---
-    const bridge = document.getElementById('data-bridge');
-    let fechas = JSON.parse(bridge.getAttribute('data-fechas')) || [];
-    let temperaturas = JSON.parse(bridge.getAttribute('data-temperaturas')) || [];
-    let humedades = JSON.parse(bridge.getAttribute('data-humedades')) || [];
+    // Variables globales para la gráfica
+    window.monitorChart = null;
 
-    const ctx = document.getElementById('monitorChart').getContext('2d');
-    const monitorChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: fechas,
-            datasets: [
-                {
-                    label: 'Temperatura (°C)',
-                    data: temperaturas,
-                    borderColor: '#7a9cc6',
-                    backgroundColor: 'rgba(122, 156, 198, 0.08)',
-                    borderWidth: 2,
-                    pointRadius: 3,
-                    fill: true,
-                    tension: 0.3,
-                    yAxisID: 'y-temp'
-                },
-                {
-                    label: 'Humedad (%)',
-                    data: humedades,
-                    borderColor: '#96b393',
-                    backgroundColor: 'rgba(150, 179, 147, 0.08)',
-                    borderWidth: 2,
-                    pointRadius: 3,
-                    fill: true,
-                    tension: 0.3,
-                    yAxisID: 'y-hum'
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                'y-temp': { type: 'linear', position: 'left', title: { display: true, text: 'Temperatura (°C)' } },
-                'y-hum': { type: 'linear', position: 'right', title: { display: true, text: 'Humedad (%)' }, grid: { drawOnChartArea: false } }
-            }
+    // --- 1. CONFIGURACIÓN SEGURA DE DATOS INICIALES ---
+    let fechas = [];
+    let temperaturas = [];
+    let humedades = [];
+
+    try {
+        const bridge = document.getElementById('data-bridge');
+        if (bridge) {
+            // Evaluamos de forma segura capturando cualquier error de formato de comillas de Jinja2
+            fechas = JSON.parse(bridge.getAttribute('data-fechas') || '[]');
+            temperaturas = JSON.parse(bridge.getAttribute('data-temperaturas') || '[]');
+            humedades = JSON.parse(bridge.getAttribute('data-humedades') || '[]');
         }
-    });
+    } catch (e) {
+        console.warn("⚠️ Advertencia al parsear datos estáticos iniciales (Base de datos vacía):", e);
+        // Si falla, las listas se quedan vacías [], evitando que se congele el script completo
+    }
 
-    // --- 2. SISTEMA DE SONDEO ASÍNCRONO EN TIEMPO REAL (CADA 5 SEGUNDOS) ---
+    // --- 2. INICIALIZACIÓN COMPATIBLE DE CHART.JS ---
+    try {
+        const ctx = document.getElementById('monitorChart').getContext('2d');
+        window.monitorChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: fechas,
+                datasets: [
+                    {
+                        label: 'Temperatura (°C)',
+                        data: temperaturas,
+                        borderColor: '#7a9cc6',
+                        backgroundColor: 'rgba(122, 156, 198, 0.08)',
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        fill: true,
+                        tension: 0.3,
+                        yAxisID: 'y-temp'
+                    },
+                    {
+                        label: 'Humedad (%)',
+                        data: humedades,
+                        borderColor: '#96b393',
+                        backgroundColor: 'rgba(150, 179, 147, 0.08)',
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        fill: true,
+                        tension: 0.3,
+                        yAxisID: 'y-hum'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    'y-temp': { type: 'linear', position: 'left', title: { display: true, text: 'Temperatura (°C)' } },
+                    'y-hum': { type: 'linear', position: 'right', title: { display: true, text: 'Humedad (%)' }, grid: { drawOnChartArea: false } }
+                }
+            }
+        });
+    } catch (chartError) {
+        console.error("❌ Error inicializando Chart.js:", chartError);
+    }
+
+    // --- 3. SISTEMA DE REFRESCO ASÍNCRONO EN TIEMPO REAL ---
     function actualizarDashboard() {
         fetch('/api/live-data')
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error("HTTP error " + response.status);
+                }
+                return response.json();
+            })
             .then(data => {
-                if (data.error) {
-                    console.log("Aviso de la base de datos:", data.error);
+                if (!data || data.error) {
+                    console.log("⚠️ Información de la API NoSQL:", data ? data.error : "Respuesta vacía");
                     return;
                 }
 
-                // A. Actualizar Tarjetas de Métricas
+                console.log("📥 [LIVE] Datos actualizados correctamente:", data.actual);
+
+                // A. Actualizar Tarjetas de Métricas Directas
                 const txtTemp = document.getElementById('live-temp');
                 const txtHum = document.getElementById('live-hum');
-                if (txtTemp && data.actual.temperatura !== undefined) txtTemp.innerText = data.actual.temperatura.toFixed(1) + '°C';
-                if (txtHum && data.actual.humedad !== undefined) txtHum.innerText = data.actual.humedad.toFixed(1) + '%';
 
-                // B. Actualizar Badge del Estado del Microclima
+                if (txtTemp && data.actual.temperatura !== undefined) {
+                    txtTemp.innerText = parseFloat(data.actual.temperatura).toFixed(1) + '°C';
+                }
+                if (txtHum && data.actual.humedad !== undefined) {
+                    txtHum.innerText = parseFloat(data.actual.humedad).toFixed(1) + '%';
+                }
+
+                // B. Actualizar Badge de Estado del Microclima
                 const estadoElemento = document.getElementById('estado-microclima');
                 if (estadoElemento && data.actual.analisis) {
-                    estadoElemento.innerText = data.actual.analisis.estado;
+                    estadoElemento.innerText = data.actual.analisis.estado || "Óptimo";
                     if (data.actual.analisis.estado === 'Crítico') {
                         estadoElemento.className = 'badge bg-danger text-white';
                     } else if (data.actual.analisis.estado === 'Alerta') {
@@ -187,10 +219,11 @@
                     }
                 }
 
-                // C. Actualizar Bloque Dinámico de Alerta de Riego
+                // C. Actualizar Bloque de Alerta de Riego
                 const contenedorAlerta = document.getElementById('alerta-riego');
                 if (contenedorAlerta && data.actual.analisis) {
-                    if (data.actual.analisis.necesitas_agua || data.actual.analisis.necesita_agua) {
+                    let necesitaAgua = data.actual.analisis.necesita_agua || data.actual.analisis.necesitas_agua;
+                    if (necesitaAgua) {
                         contenedorAlerta.innerHTML = `
                             <div class="alert alert-danger mt-2 mb-0" role="alert" style="border-radius: 8px;">
                                 <strong>⚠️ ¡Atención!</strong> Necesita agua de forma inmediata.
@@ -203,9 +236,9 @@
                     }
                 }
 
-                // D. Actualizar Lista Dinámica de Recomendaciones
+                // D. Actualizar Lista de Recomendaciones
                 const listaRecomendaciones = document.getElementById('lista-recomendaciones');
-                if (listaRecomendaciones && data.actual.analisis.recomendaciones) {
+                if (listaRecomendaciones && data.actual.analisis && data.actual.analisis.recomendaciones) {
                     listaRecomendaciones.innerHTML = ''; 
                     data.actual.analisis.recomendaciones.forEach(rec => {
                         const li = document.createElement('li');
@@ -215,19 +248,21 @@
                     });
                 }
 
-                // E. Actualizar Gráfica Histórica en Vivo
-                if (monitorChart && data.grafica) {
-                    monitorChart.data.labels = data.grafica.labels;
-                    monitorChart.data.datasets[0].data = data.grafica.temperaturas;
-                    monitorChart.data.datasets[1].data = data.grafica.humedades;
-                    monitorChart.update();
+                // E. Actualizar Gráfica en Vivo sin animaciones bruscas
+                if (window.monitorChart && data.grafica) {
+                    window.monitorChart.data.labels = data.grafica.labels || [];
+                    window.monitorChart.data.datasets[0].data = data.grafica.temperaturas || [];
+                    window.monitorChart.data.datasets[1].data = data.grafica.humedades || [];
+                    window.monitorChart.update('none');
                 }
             })
-            .catch(error => console.error("Error conectando con el Endpoint asíncrono:", error));
+            .catch(error => console.error("❌ Error en bucle AJAX /api/live-data:", error));
     }
 
-    // Arrancar ciclo automático de refresco cada 5 segundos
-    actualizarDashboard();
-    setInterval(actualizarDashboard, 5000);
+    // Arrancar el ciclo repetitivo de manera segura
+    document.addEventListener("DOMContentLoaded", () => {
+        actualizarDashboard();
+        setInterval(actualizarDashboard, 5000); // 5 segundos exactos de refresco continuo
+    });
 </script>
 {% endblock %}
