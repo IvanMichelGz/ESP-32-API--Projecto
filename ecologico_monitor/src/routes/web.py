@@ -3,7 +3,8 @@ from src.database import Database
 from datetime import datetime, timedelta
 import statistics
 
-web_bp = Blueprint('web', __name__, template_folder='../templates')
+# Blueprint configurado de forma limpia para heredar las rutas estáticas globales
+web_bp = Blueprint('web', __name__)
 
 def formatear_fecha(fecha_obj):
     """Función auxiliar para mitigar errores de tipo de dato en fechas de MongoDB Atlas."""
@@ -29,7 +30,12 @@ def dashboard():
         for r in registros:
             fecha_obj = r.get('fecha')
             if isinstance(fecha_obj, datetime):
-                fecha_str = fecha_obj.strftime('%H:%M:%S')
+                # Si el dato es de días anteriores, se incluye día/mes para mejor contexto visual
+                ahora = datetime.now()
+                if fecha_obj.date() < ahora.date():
+                    fecha_str = fecha_obj.strftime('%d/%m %H:%M')
+                else:
+                    fecha_str = fecha_obj.strftime('%H:%M:%S')
             else:
                 fecha_str = str(fecha_obj).split('T')[-1][:8] if 'T' in str(fecha_obj) else str(fecha_obj)
 
@@ -60,13 +66,14 @@ def dashboard():
 
 @web_bp.route('/api/live-data')
 def live_data():
-    """API Endpoint corregido para el refresco asíncrono cada 5 segundos."""
+    """API Endpoint optimizado para el refresco asíncrono cada 5 segundos buscando datos históricos reales."""
     try:
         coleccion = Database.get_collection('sensores')
         
-        # 1. Traemos los 10 registros más recientes (el index 0 es el último segundo)
+        # 1. Traemos los 10 registros más recientes guardados en la base de datos
         registros_nuevos = list(coleccion.find().sort('fecha', -1).limit(10))
         
+        # Si la base de datos está completamente vacía (sin registros históricos)
         if not registros_nuevos:
             ahora = datetime.now()
             labels_mock = [(ahora - timedelta(seconds=(10-i)*5)).strftime('%H:%M:%S') for i in range(10)]
@@ -90,7 +97,7 @@ def live_data():
                 }
             })
             
-        # 2. Guardamos el dato más reciente para las tarjetas ANTES de voltear nada
+        # 2. Guardamos el dato más reciente para las tarjetas de métricas
         actual_reg = registros_nuevos[0]
         
         temp_val = float(actual_reg.get('temperatura', 0))
@@ -111,10 +118,20 @@ def live_data():
                 estado = "Alerta"
                 recomendaciones = ["Temperatura elevada.", "Monitorear ventilación del invernadero."]
 
-        # 3. Clonamos y volteamos la lista ÚNICAMENTE para la gráfica (eje X de izquierda a derecha)
+        # 3. Clonamos y volteamos la lista para renderizar el eje X de forma cronológica (antiguo -> nuevo)
         registros_grafica = list(registros_nuevos)
         registros_grafica.reverse()
         
+        # Formatear etiquetas de tiempo dinámicamente si los datos son históricos
+        labels_dinamicos = []
+        ahora_ref = datetime.now()
+        for r in registros_grafica:
+            f_obj = r.get('fecha')
+            if isinstance(f_obj, datetime) and f_obj.date() < ahora_ref.date():
+                labels_dinamicos.append(f_obj.strftime('%d/%m %H:%M'))
+            else:
+                labels_dinamicos.append(formatear_fecha(f_obj))
+
         data = {
             'actual': {
                 'temperatura': temp_val,
@@ -126,7 +143,7 @@ def live_data():
                 }
             },
             'grafica': {
-                'labels': [formatear_fecha(r.get('fecha', datetime.now())) for r in registros_grafica],
+                'labels': labels_dinamicos,
                 'temperaturas': [float(r.get('temperatura', 0)) for r in registros_grafica],
                 'humedades': [float(r.get('humedad', 0)) for r in registros_grafica]
             }
@@ -196,7 +213,7 @@ def reporte_historico():
             
             labels_grafica = []
             for r in registros_agrupados:
-                dt_parse = datetime.strptime(r['_id']['fecha_hora'], '%Y-%m-%d %H:%00')
+                dt_parse = datetime.strptime(r['_id']['fecha_hora'], '%Y-%m-%d %H:00')
                 labels_grafica.append(dt_parse.strftime('%d/%m %H:00'))
             
             metricas = {

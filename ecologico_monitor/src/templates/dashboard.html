@@ -70,11 +70,26 @@
         </div>
     </div>
 
-    <div class="card shadow-sm mb-4 border">
-        <div class="card-header bg-white text-secondary fw-bold py-3">Historial de las Últimas 10 Lecturas</div>
-        <div class="card-body">
-            <div style="position: relative; width: 100%; height: 220px;">
-                <canvas id="monitorChart"></canvas>
+    <div class="row g-4 mb-4">
+        <div class="col-12 col-md-6">
+            <div class="card shadow-sm border h-100">
+                <div class="card-header bg-white text-secondary fw-bold py-3">Historial de Temperatura (°C)</div>
+                <div class="card-body">
+                    <div style="position: relative; width: 100%; height: 220px;">
+                        <canvas id="temperaturaChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-12 col-md-6">
+            <div class="card shadow-sm border h-100">
+                <div class="card-header bg-white text-secondary fw-bold py-3">Historial de Humedad (%)</div>
+                <div class="card-body">
+                    <div style="position: relative; width: 100%; height: 220px;">
+                        <canvas id="humedadChart"></canvas>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -112,8 +127,9 @@
 </div>
 
 <script>
-    // Variables globales para la gráfica
-    window.monitorChart = null;
+    // Referencias globales para las dos instancias de gráficas
+    window.temperaturaChart = null;
+    window.humedadChart = null;
 
     // --- 1. CONFIGURACIÓN SEGURA DE DATOS INICIALES ---
     let fechas = [];
@@ -123,57 +139,69 @@
     try {
         const bridge = document.getElementById('data-bridge');
         if (bridge) {
-            // Evaluamos de forma segura capturando cualquier error de formato de comillas de Jinja2
             fechas = JSON.parse(bridge.getAttribute('data-fechas') || '[]');
             temperaturas = JSON.parse(bridge.getAttribute('data-temperaturas') || '[]');
             humedades = JSON.parse(bridge.getAttribute('data-humedades') || '[]');
         }
     } catch (e) {
         console.warn("⚠️ Advertencia al parsear datos estáticos iniciales (Base de datos vacía):", e);
-        // Si falla, las listas se quedan vacías [], evitando que se congele el script completo
     }
 
-    // --- 2. INICIALIZACIÓN COMPATIBLE DE CHART.JS ---
+    // Opciones base compartidas para un diseño simétrico y limpio
+    const opcionesBase = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { display: false } // Ocultamos leyenda ya que el título de la tarjeta lo indica
+        },
+        scales: {
+            x: { grid: { display: false } },
+            y: { beginAtZero: false }
+        }
+    };
+
+    // --- 2. INICIALIZACIÓN COMPATIBLE DE AMBOS LIENZOS ---
     try {
-        const ctx = document.getElementById('monitorChart').getContext('2d');
-        window.monitorChart = new Chart(ctx, {
+        // Gráfica de Temperatura
+        const ctxTemp = document.getElementById('temperaturaChart').getContext('2d');
+        window.temperaturaChart = new Chart(ctxTemp, {
             type: 'line',
             data: {
                 labels: fechas,
-                datasets: [
-                    {
-                        label: 'Temperatura (°C)',
-                        data: temperaturas,
-                        borderColor: '#7a9cc6',
-                        backgroundColor: 'rgba(122, 156, 198, 0.08)',
-                        borderWidth: 2,
-                        pointRadius: 3,
-                        fill: true,
-                        tension: 0.3,
-                        yAxisID: 'y-temp'
-                    },
-                    {
-                        label: 'Humedad (%)',
-                        data: humedades,
-                        borderColor: '#96b393',
-                        backgroundColor: 'rgba(150, 179, 147, 0.08)',
-                        borderWidth: 2,
-                        pointRadius: 3,
-                        fill: true,
-                        tension: 0.3,
-                        yAxisID: 'y-hum'
-                    }
-                ]
+                datasets: [{
+                    label: 'Temperatura (°C)',
+                    data: temperaturas,
+                    borderColor: '#7a9cc6',
+                    backgroundColor: 'rgba(122, 156, 198, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 3,
+                    fill: true,
+                    tension: 0.3
+                }]
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    'y-temp': { type: 'linear', position: 'left', title: { display: true, text: 'Temperatura (°C)' } },
-                    'y-hum': { type: 'linear', position: 'right', title: { display: true, text: 'Humedad (%)' }, grid: { drawOnChartArea: false } }
-                }
-            }
+            options: opcionesBase
         });
+
+        // Gráfica de Humedad
+        const ctxHum = document.getElementById('humedadChart').getContext('2d');
+        window.humedadChart = new Chart(ctxHum, {
+            type: 'line',
+            data: {
+                labels: fechas,
+                datasets: [{
+                    label: 'Humedad (%)',
+                    data: humedades,
+                    borderColor: '#96b393',
+                    backgroundColor: 'rgba(150, 179, 147, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 3,
+                    fill: true,
+                    tension: 0.3
+                }]
+            },
+            options: opcionesBase
+        });
+
     } catch (chartError) {
         console.error("❌ Error inicializando Chart.js:", chartError);
     }
@@ -193,7 +221,7 @@
                     return;
                 }
 
-                console.log("📥 [LIVE] Datos actualizados correctamente:", data.actual);
+                console.log("📥 [LIVE] Datos actualizados en ambas gráficas:", data.actual);
 
                 // A. Actualizar Tarjetas de Métricas Directas
                 const txtTemp = document.getElementById('live-temp');
@@ -248,12 +276,19 @@
                     });
                 }
 
-                // E. Actualizar Gráfica en Vivo sin animaciones bruscas
-                if (window.monitorChart && data.grafica) {
-                    window.monitorChart.data.labels = data.grafica.labels || [];
-                    window.monitorChart.data.datasets[0].data = data.grafica.temperaturas || [];
-                    window.monitorChart.data.datasets[1].data = data.grafica.humedades || [];
-                    window.monitorChart.update('none');
+                // E. Actualizar Ambas Gráficas en Vivo de forma independiente
+                const labelsNuevos = data.grafica ? data.grafica.labels : [];
+                
+                if (window.temperaturaChart && data.grafica) {
+                    window.temperaturaChart.data.labels = labelsNuevos;
+                    window.temperaturaChart.data.datasets[0].data = data.grafica.temperaturas || [];
+                    window.temperaturaChart.update('none'); // Update fluido sin parpadeos visuales
+                }
+
+                if (window.humedadChart && data.grafica) {
+                    window.humedadChart.data.labels = labelsNuevos;
+                    window.humedadChart.data.datasets[0].data = data.grafica.humedades || [];
+                    window.humedadChart.update('none');
                 }
             })
             .catch(error => console.error("❌ Error en bucle AJAX /api/live-data:", error));
@@ -262,7 +297,7 @@
     // Arrancar el ciclo repetitivo de manera segura
     document.addEventListener("DOMContentLoaded", () => {
         actualizarDashboard();
-        setInterval(actualizarDashboard, 5000); // 5 segundos exactos de refresco continuo
+        setInterval(actualizarDashboard, 5000); // Refresco continuo de 5 segundos exactos
     });
 </script>
 {% endblock %}
